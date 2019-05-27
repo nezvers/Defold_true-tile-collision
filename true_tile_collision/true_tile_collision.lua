@@ -100,7 +100,6 @@ local ceil	= math.ceil																--Save floor function for simplicity
 local floor	= math.floor															--save ceil function for simplicity
 local band	= bit.band																--Save bitwise AND
 local bor	= bit.bor																--Save bitwise OR
-local lerp = math.l
 --INIT
 function init_physics(inst, id, url, solidMap, solidLayer, tile_size, run_maxspeed, jump_speed, gravity)
 	TILE_SIZE         = tile_size
