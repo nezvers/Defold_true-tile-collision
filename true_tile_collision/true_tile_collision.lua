@@ -6,6 +6,10 @@ local VIEW_SCALE	= 4											--hardcoded for prototyping
 local JUMP_BUFFER	= 20										--buffer after player loses ground
 local SLOPE_SPD1	= vmath.normalize(vmath.vector3(1,1,0))		--Multiplier for walking slopes
 local SLOPE_SPD2	= vmath.normalize(vmath.vector3(1,0.5,0))	--Multiplier for walking slopes
+local MOV_PLAT		= {}										--Data structure to store platform location and player can check
+local PLAYERS		= {}										--Data structure to store players
+local MOV_PLAT_COUNT= 0
+local PLAYER_COUNT	= 0
 
 --COLISION TILES
 local solid1 = 1					--solid block
@@ -98,73 +102,109 @@ end
 
 local ceil	= math.ceil																--Save floor function for simplicity
 local floor	= math.floor															--save ceil function for simplicity
+local mod	= math.mod																--Save mod function
 local band	= bit.band																--Save bitwise AND
 local bor	= bit.bor																--Save bitwise OR
---INIT
-function init_physics(inst, id, url, solidMap, solidLayer, tile_size, run_maxspeed, jump_speed, gravity)
-	TILE_SIZE         = tile_size
-	TILE_ROUND		  = -TILE_SIZE + 1
-	inst.MY_ID		  = id
-	inst.MY_URL		  = url
-	inst.MY_POS		  = go.get_position(url)
-	inst.START_POS	  = go.get_position(url)
-	inst.WORLD_POS	  = vmath.vector3(0,0,0)
-	inst.SOLIDMAP     = solidMap
-	inst.SOLIDLAYER   = solidLayer
-	inst.GRAVITY      = -gravity
+local sin	= math.sin																--Save sinus function
+local cos	= math.cos																--Save cosinus function
+local rad	= math.rad																--Save radian function
+function dsin(degree)																--Sinus in degrees
+	return sin(rad(degree))
+end
+function dcos(degree)																--Cosinus in degrees
+	return cos(rad(degree))
+end
 
-	inst.START_JUMP   = jump_speed
-	inst.RELEASE_JUMP = ceil(jump_speed / 3)
-	inst.ACC          = run_maxspeed / 10		--Accelerate
-	inst.ACCW         = run_maxspeed / 30		--Walk accelerate
-	inst.MAX          = run_maxspeed			--max run speed
+--INIT
+--function init_physics(inst, id, url, solidMap, solidLayer, tile_size, run_maxspeed, jump_speed, gravity)
+function init_physics(inst, url, solidMap, solidLayer, tile_size, run_maxspeed, jump_speed, gravity)
+	table.insert(PLAYERS, inst)
+	TILE_SIZE         	= tile_size
+	TILE_ROUND		  	= -TILE_SIZE + 1
+	inst.URL		  	= url
+	inst.POS		  	= go.get_position(url)
+	inst.START_POS	  	= go.get_position(url)
+	inst.WORLD_POS	  	= vmath.vector3(0,0,0)
+	inst.SOLIDMAP     	= solidMap
+	inst.SOLIDLAYER   	= solidLayer
+	inst.GRAVITY      	= -gravity
+
+	inst.START_JUMP   	= jump_speed
+	inst.RELEASE_JUMP 	= ceil(jump_speed / 3)
+	inst.ACC          	= run_maxspeed / 10			--Accelerate
+	inst.ACCW         	= run_maxspeed / 30			--Walk accelerate
+	inst.MAX          	= run_maxspeed				--max run speed
 	--inst.MAXW         = run_maxspeed  * 25 / 64	--Max walk speed
-	inst.DCC          = run_maxspeed * 9 / 64	--deaccelerate when no input
+	inst.DCC          	= run_maxspeed * 9 / 64		--deaccelerate when no input
 	--inst.AIR          = run_maxspeed * 2 / 64
 	--inst.AIRW         = run_maxspeed * 1 / 128	--air walk speed
 	--inst.AIRS         = run_maxspeed * 2 / 64 	--air stopping speed
-	--inst.DRAG         = run_maxspeed * 9 / 64	--deaccelerate when no input
-	inst.MAX_DOWN     = -jump_speed				--max fall speed
-	inst.MAX_UP       = jump_speed				--max up speed just in case
-	inst.WALLSPEED	  = -ceil(jump_speed/5)
+	--inst.DRAG         = run_maxspeed * 9 / 64		--deaccelerate when no input
+	inst.MAX_DOWN     	= -jump_speed				--max fall speed
+	inst.MAX_UP       	= jump_speed				--max up speed just in case
+	inst.WALLSPEED	  	= -ceil(jump_speed/5)
 
-	inst.spd          = vmath.vector3(0,0,0)
+	inst.spd          	= vmath.vector3(0,0,0)
 
-	inst.buttons	  = 0
-	inst.xinput		  = 0								--for platformer
-	inst.dir_input	  = vmath.vector3(0, 0, 0)		--for top-down
-	inst.jmp_buf_tmr  = 0
-	inst.last_wall    = 0
-	inst.last_ledge	  = 0
-	inst.hurtTimer    = 0
-	inst.dashTimer    = 0
+	inst.buttons	  	= 0
+	inst.xinput		  	= 0							--for platformer
+	inst.dir_input	  	= vmath.vector3(0, 0, 0)	--for top-down
+	inst.jmp_buf_tmr  	= 0
+	inst.last_wall    	= 0
+	inst.last_ledge	  	= 0
+	inst.hurtTimer    	= 0
+	inst.dashTimer    	= 0
 	
 	--STATES
-	inst.grounded	  = false
-	inst.jumping	  = false
-	inst.doubleJump   = false	--not included yet
-	inst.dashing	  = false	--not included yet
-	inst.wallsliding  = false
-	inst.on_ledge	  = false
-	inst.ledge_climb  = false	--not included yet
-	inst.hurt		  = false	--not included yet
+	inst.grounded	  	= false
+	inst.jumping	  	= false
+	inst.doubleJump   	= false	--not included yet 
+	inst.dashing	  	= false	--not included yet
+	inst.wallsliding  	= false
+	inst.on_ledge	  	= false
+	inst.ledge_climb  	= false	--not included yet
+	inst.hurt		  	= false	--not included yet
 
 	--TRIGGERS					--Useful for triggering animations or states
-	inst.landed		  = false	--True when happens collision with ground
-	inst.ledge_trig   = false	--True for first frame ledge is grabbed
-	inst.wallslide_trig = false	--True for first frame wallslide is triggered
-	inst.wall_trig	  = false	--True when wall collision is triggered			(useful for enemy to turn arond)
-	inst.cliff_trig	  = false	--True when cliff edge collision is triggered	(useful for enemy to turn around)
-	inst.fast_fall	  = false	--True if falling is at max speed
+	inst.trig_landed	= false	--True when happens collision with ground
+	inst.trig_ledge   	= false	--True for first frame ledge is grabbed
+	inst.trig_wallslide = false	--True for first frame wallslide is triggered
+	inst.trig_wall	  	= false	--True when wall collision is triggered			(useful for enemy to turn around)
+	inst.trig_wall_x  	= false	--Top-down variation
+	inst.trig_wall_y  	= false	--Top-down variation
+	inst.trig_ceiling	= false
+	inst.trig_cliff	  	= false	--True when cliff edge collision is triggered	(useful for enemy to turn around)
+	inst.trig_fast_fall	= false	--True if falling is at max speed
 
 	--HITBOX					--Need to be initiated with set_hitbox()
-	inst.hitbox_l	  = 0
-	inst.hitbox_r	  = 0
-	inst.hitbox_t	  = 0
-	inst.hitbox_b	  = 0
-	inst.hitbox_hc    = 0
-	inst.hitbox_vc    = 0
-	inst.hitbox_ledge = 0
+	inst.hitbox_l	  	= 0
+	inst.hitbox_r	  	= 0
+	inst.hitbox_t	  	= 0
+	inst.hitbox_b	  	= 0
+	inst.hitbox_hc    	= 0
+	inst.hitbox_vc    	= 0
+	inst.hitbox_ledge 	= 0
+end
+
+function init_moving_platform(inst, url, width, height, moveXtiles, moveYtiles, moveTimeSeconds, offset)
+	table.insert(MOV_PLAT, inst)
+	inst.URL			= url
+	local pos			= go.get_position(inst.URL)
+	inst.width			= width
+	inst.height			= height
+	local x1			= pos.x												--X start
+	local y1			= pos.y												--Y start
+	local x2			= pos.x + (TILE_SIZE*moveXtiles)	                --X end
+	local y2			= pos.y + (TILE_SIZE*moveYtiles)	                --Y end
+	inst.radius			= vmath.vector3((TILE_SIZE*moveXtiles)/2, (TILE_SIZE*moveYtiles)/2, 0)
+	inst.center			= vmath.vector3((x1+x2)/2,(y1+y2)/2,0)
+	inst.POS			= vmath.vector3((x1+x2)/2,(y1+y2)/2,0)  --position in the middle
+	inst.PREV_POS		= vmath.vector3((x1+x2)/2,(y1+y2)/2,0)
+	inst.time			= 0
+	inst.moveTime		= moveTimeSeconds
+	inst.spd			= vmath.vector3(0,0,0)
+	inst.offset			= offset
+	inst.carry			= nil
 end
 
 function set_hitbox(inst, hitbox_r, hitbox_l, hitbox_t, hitbox_b)
@@ -204,6 +244,7 @@ function get_dir_input(inst)
 	if (bit.band(inst.buttons, left)==left) then										--bitmasking for left button
 		hin = hin - 1
 	end
+
 	local vin = 0
 	if (bit.band(inst.buttons, up)==up) then											--bitmasking for right button
 		vin = vin + 1
@@ -211,6 +252,7 @@ function get_dir_input(inst)
 	if (bit.band(inst.buttons, down)==down) then										--bitmasking for left button
 		vin = vin - 1
 	end
+
 	inst.dir_input.x = hin
 	inst.dir_input.y = vin
 
@@ -218,6 +260,7 @@ function get_dir_input(inst)
 		inst.dir_input = vmath.normalize(inst.dir_input)								--To get right value for diagonal movement
 	end
 end
+
 --Get Tile ID from tilesource
 function tile_id(inst, x, y)
 	x = ceil(x)
@@ -250,20 +293,240 @@ function tile_height(inst, tile_id, x, y)
 	end
 end
 
-function ground_check_blocks(inst)
-	--local x = inst.MY_POS.x
-	--local y = inst.MY_POS.y
-	if inst.landed then inst.landed = false end
-	local x = ceil(inst.MY_POS.x)
-	local y = ceil(inst.MY_POS.y)
-	if inst.spd.y <= 0 then															--Bypass in case going up
-		local L = tile_id(inst, x+inst.hitbox_l+1,	y+inst.hitbox_b)
-		local M = tile_id(inst, x+inst.hitbox_hc,	y+inst.hitbox_b)
-		local R = tile_id(inst, x+inst.hitbox_r,	y+inst.hitbox_b)
-		if L>0 or M>0 or R>0 then
-			inst.grounded = true
-		else
+--HORIZONTAL MOVEMENT
+function h_move_blocks(inst, dt)
+	
+	if inst.wallsliding then														--Wallslide
+		--
+	elseif inst.on_ledge then
+		--
+	else
+		local hin = inst.xinput														--xinput set in get_xinput()
+		local hsp = inst.spd.x /dt
+		if hin ~= 0 then															--Move
+			hsp = hsp + hin * (inst.ACC * dt)
+			hsp = clamp(hsp, -inst.MAX, inst.MAX)
+		else																		--deaccelerate
+			hsp = approach(hsp, 0, inst.DCC *dt)										--(value, goal, ammount)
+		end
+		inst.spd.x = hsp *dt
+	end
+end
+
+function h_move_slopes(inst, dt)
+	
+	if inst.wallsliding then														--Wallslide
+		--
+	elseif inst.on_ledge then
+		--
+	else
+		local move_mult = 1															--Reduce speed if on slopes
+		local M = tile_id(inst, inst.POS.x+inst.hitbox_hc, inst.POS.y+inst.hitbox_b)
+		if M==solid2 or M==solid3 then
+			move_mult = SLOPE_SPD1.x
+		elseif M==solid4 or M==solid5 or M==solid6 or M==solid7 then
+			move_mult = SLOPE_SPD2.x
+		end
+		local hin = inst.xinput														--xinput set in get_xinput()
+		local hsp = inst.spd.x /dt
+		if hin ~= 0 then															--Move
+			hsp = hsp + hin * (inst.ACC * dt *move_mult)
+			hsp = clamp(hsp, -inst.MAX *move_mult, inst.MAX *move_mult)
+		else																		--deaccelerate
+			hsp = approach(hsp, 0, inst.DCC *dt *move_mult)										--(value, goal, ammount)
+		end
+		inst.spd.x = hsp *dt
+	end
+end
+
+function h_move_topdown(inst, dt)
+	local hin = inst.dir_input.x												--xinput set in get_xinput()
+	local hsp = inst.spd.x /dt
+	if hin ~= 0 then															--Move
+	hsp = hsp + hin * (inst.ACC * dt)
+	hsp = clamp(hsp, -inst.MAX, inst.MAX)
+	else																		--deaccelerate
+		hsp = approach(hsp, 0, inst.DCC *dt)									--(value, goal, ammount)
+	end
+	inst.spd.x = hsp *dt
+end
+
+function h_moving_plat(inst,dt)				
+	local x = inst.POS.x
+	local dx = dcos(inst.time * 360 +(360*inst.offset.x)) * inst.radius.x
+	local x2 = round(inst.center.x + dx)
+	inst.spd.x = x2 -x															--Movement speed to check in collision
+	if inst.carry~=nil then
+		inst.carry.POS.x = inst.carry.POS.x + inst.spd.x
+	end
+end
+
+--VERTICAL MOVEMENT
+function v_move_platformer(inst, dt)
+	local vsp = inst.spd.y /dt
+	if inst.grounded then												--On ground
+		inst.doublejump = false											--If use doublejump it's disabled on ground
+		inst.last_wall = 0												--Reset Last wall (for allowing walljump from same wall once in a row)
+		inst.jmp_buf_tmr = 0											--Reset jump buffer
+		if inst.jumping and bit.band(inst.buttons, jump)==0 then		--Release jump button
+			inst.jumping = false
+		end
+		if inst.wallsliding then										--disable wallsliding
+			inst.wallsliding = false
+		end
+
+		if band(inst.buttons, jump)==jump and not inst.jumping and band(inst.buttons, down)~=down then --New jump executed
+			vsp = inst.START_JUMP
 			inst.grounded = false
+			inst.jumping = true
+		end
+		if inst.trig_fast_fall then inst.trig_fast_fall = false end				--Not fast falling
+	else 																--Not on the ground
+		if not inst.on_ledge then
+			vsp = vsp + inst.GRAVITY *dt								--Apply gravity
+		end
+		if vsp>0 then													--Going up
+			if inst.jmp_buf_tmr~=JUMP_BUFFER then						--Disable jump buffer
+				inst.jmp_buf_tmr = JUMP_BUFFER
+			end
+		else															--Going down
+			if can_wallslide(inst, inst.xinput) then					--Check wallsliding
+				inst.wallsliding = true
+			elseif inst.wallsliding then
+				inst.wallsliding = false
+			end
+			if inst.wallsliding then
+				if bit.band(inst.buttons, jump)==jump and not inst.jumping then --New jump executed
+					vsp = inst.START_JUMP
+					inst.jumping = true
+					inst.wallsliding = false
+					if inst.xinput == -inst.last_wall then						--Presing away from wall
+						inst.spd.x = inst.xinput * inst.MAX *dt					--Jump afay from wall with full speed
+					end
+				end
+				if vsp < inst.WALLSPEED then vsp = inst.WALLSPEED end	--Limit wallslide speed
+			else
+				if vsp < inst.MAX_DOWN then								--Limit fall speed
+					vsp = inst.MAX_DOWN
+					inst.trig_fast_fall = true								--Fast falling
+				else
+					if inst.trig_fast_fall then inst.trig_fast_fall = false end	--Not fast falling
+				end		
+			end
+			if inst.jmp_buf_tmr < JUMP_BUFFER then						--Count jump buffer timer
+				inst.jmp_buf_tmr = inst.jmp_buf_tmr +1*dt
+			end
+		end
+		
+		if band(inst.buttons, jump)~=jump then							--Released jump button
+			if vsp > inst.RELEASE_JUMP then								--Cut down jump speed
+				vsp = inst.RELEASE_JUMP
+			end
+			inst.jumping = false
+		else															--Holding jump button
+			if not inst.jumping and inst.jmp_buf_tmr < JUMP_BUFFER and band(inst.buttons, down)~=down then
+				vsp = inst.START_JUMP
+				inst.jumping = true
+			elseif not inst.jumping and inst.doublejump then			--If released jump and allowed doublejump
+				vsp = inst.JUMP_START
+				inst.jumping = true
+				inst.doublejump = false
+			end
+		end
+	end
+	inst.spd.y = vsp*dt										--Save vertical speed
+end
+
+function v_move_topdown(inst, dt)
+	local vin = inst.dir_input.y												--xinput set in get_xinput()
+	local vsp = inst.spd.y /dt
+	if vin ~= 0 then															--Move
+	vsp = vsp + vin * (inst.ACC * dt)
+	vsp = clamp(vsp, -inst.MAX, inst.MAX)
+	else																		--deaccelerate
+		vsp = approach(vsp, 0, inst.DCC *dt)									--(value, goal, ammount)
+	end
+	inst.spd.y = vsp *dt
+end
+
+function v_moving_plat(inst,dt)
+	local y = inst.POS.y
+	local dy = dsin(inst.time * 360 +(360*inst.offset.y)) * inst.radius.y
+	local y2 = round(inst.center.y + dy)
+	inst.spd.y = y2 -y															--Movement speed to check in collision
+	if inst.carry~=nil then
+		inst.carry.POS.y = inst.carry.POS.y + inst.spd.y
+	end
+end
+
+--COLLISIONS
+function collision_check_play2plat(inst, pos)									--Separated axis collision check (pos = vec3) single object collision
+	local x = pos.x
+	local y = pos.y
+	local x1 = x+inst.hitbox_l+1
+	local x2 = x+inst.hitbox_r
+	local y1 = y+inst.hitbox_t
+	local y2 = y+inst.hitbox_b+1
+		for key,value in ipairs(MOV_PLAT) do             								--MOV_PLAT table where platforms added self
+		--Platform horizontal points
+		local px1 = value.POS.x
+		local px2 = px1+value.width+1
+		if (px1 <= x1 and px2 > x1) or (px1 < x2 and px2 >= x2) or (x1 <= px1 and x2 > px1) or (x1 < px2 and x2 >= px2) then		--Overlaps horizontaly
+			--Platform vertical points
+			local py1 = value.POS.y+1
+			local py2 = py1-value.height
+			if (py1 >= y1 and py2 < y1) or (py1 > y2 and py2 <= y2) or (y1 >= py1 and y2 < py1) or (y1 > py2 and y2 <= py2) then	--Overlaps vertically
+				return value                        						--Return platform instance
+			end
+		end
+	end
+	return nil																		--No collision
+end
+
+function collision_check_plat2play(inst, pos)									--Single object collision (if one player and no more than one patform at the time)
+	local px1 = pos.x
+	local px2 = px1+inst.width+1
+	local py1 = pos.y+1
+	local py2 = py1-inst.height
+	for key, value in ipairs(PLAYERS) do
+		local x1 = value.POS.x+value.hitbox_l+1
+		local x2 = value.POS.x+value.hitbox_r
+		if (px1 <= x1 and px2 > x1) or (px1 < x2 and px2 >= x2) or (x1 <= px1 and x2 > px1) or (x1 < px2 and x2 >= px2) then		--Overlaps horizontaly
+			local y1 = value.POS.y+value.hitbox_t
+			local y2 = value.POS.y+value.hitbox_b+1
+			if (py1 >= y1 and py2 < y1) or (py1 > y2 and py2 <= y2) or (y1 >= py1 and y2 < py1) or (y1 > py2 and y2 <= py2) then	--Overlaps vertically
+				return value
+			end
+		end
+	end
+end
+
+function player_on_platform(inst)
+	inst.carry = collision_check_plat2play(inst, inst.POS + vmath.vector3(0,1,0))	--Check if player is on top and save their id
+end
+
+function ground_check_blocks(inst)
+	inst.grounded = false
+	if inst.spd.y <= 0 then															--Bypass in case going up
+		local x = ceil(inst.POS.x)
+		local y = ceil(inst.POS.y)
+		local bottom = inst.hitbox_b
+		local L = tile_id(inst, x+inst.hitbox_l+1,	y+bottom)
+		local M = tile_id(inst, x+inst.hitbox_hc,	y+bottom)
+		local R = tile_id(inst, x+inst.hitbox_r,	y+bottom)
+		
+		if (L~=0 and L~=plat) or (M~=0 and M~=plat) or (R~=0 and R~=plat) then --Not empty and not jumpthrough
+			inst.grounded = true
+		elseif L==plat or M==plat or R==plat then								--Jumpthrough
+			L = tile_id(inst, x+inst.hitbox_l+1, y+bottom +1)
+			C = tile_id(inst, x+inst.hitbox_hc, y+bottom +1)
+			R = tile_id(inst, x+inst.hitbox_r, y+bottom +1)
+			if L==0 and C==0 and R==0 then												--Above platform or in free tile
+				inst.grounded = true
+			end
+			if band(inst.buttons, down)==down and band(inst.buttons,jump)==jump then
+				inst.grounded = false
+			end
 		end
 	else
 		inst.grounded = false
@@ -271,61 +534,63 @@ function ground_check_blocks(inst)
 end
 
 function ground_check_slopes(inst)
-	--local x = inst.MY_POS.x
-	--local y = inst.MY_POS.y
-	local x = ceil(inst.MY_POS.x)
-	local y = ceil(inst.MY_POS.y)
-	if inst.landed then inst.landed = false end
 	inst.grounded = false															--Default to false
 	if inst.spd.y <= 0 then															--Bypass if going up
+		local x = ceil(inst.POS.x)
+		local y = ceil(inst.POS.y)
+		
 		local M = tile_id(inst, x+inst.hitbox_hc, y+inst.hitbox_b)					--Get tile id
-		if M~=plat then																	--Not jump through platform
-			if M~=nil and M~=0 then														--Center bottom is inside solid tile
-				local h = tile_height(inst, M, x+inst.hitbox_hc, y+inst.hitbox_b)
-				if y+inst.hitbox_b < h then												--If feet is on or below tile height
+		local L = tile_id(inst, x+inst.hitbox_l+1, y+inst.hitbox_b)
+		local R = tile_id(inst, x+inst.hitbox_r, y+inst.hitbox_b)
+		if M~=nil and M~=0 and M~=plat then														--Center bottom is inside solid tile
+			local h = tile_height(inst, M, x+inst.hitbox_hc, y+inst.hitbox_b)
+			if y+inst.hitbox_b < h then												--If feet is on or below tile height
+				inst.grounded = true
+			end
+		end
+		if inst.grounded == false then												--If middle isn't on ground
+			if L~=nil and L~=0 and L~=plat then
+				local h = tile_height(inst, L, x+inst.hitbox_l+1, y+inst.hitbox_b)
+				if y+inst.hitbox_b < h then
 					inst.grounded = true
 				end
 			end
-			if inst.grounded == false then												--If middle isn't on ground
-				local L = tile_id(inst, x+inst.hitbox_l+1, y+inst.hitbox_b)
-				local R = tile_id(inst, x+inst.hitbox_r, y+inst.hitbox_b)
-				if L~=nil and L~=0 and L~=plat then
-					local h = tile_height(inst, L, x+inst.hitbox_l+1, y+inst.hitbox_b)
-					if y+inst.hitbox_b < h then
-						inst.grounded = true
-					end
-				end
-				if not inst.grounded and R~=nil and R~=0 and R~=plat then
-					local h = tile_height(inst, R, x+inst.hitbox_r, y+inst.hitbox_b)
-					if y+inst.hitbox_b < h then
-						inst.grounded = true
-					end
+			if not inst.grounded and R~=nil and R~=0 and R~=plat then
+				local h = tile_height(inst, R, x+inst.hitbox_r, y+inst.hitbox_b)
+				if y+inst.hitbox_b < h then
+					inst.grounded = true
 				end
 			end
 		end
-		if not (band(inst.buttons, down)==down and band(inst.buttons, jump)==jump) then
-			local bottom = inst.hitbox_b
-			local L = tile_id(inst, x+inst.hitbox_l+1, y+bottom +1)
-			local C = tile_id(inst, x+inst.hitbox_hc, y+bottom +1)
-			local R = tile_id(inst, x+inst.hitbox_r, y+bottom +1)
+		if not inst.grounded and (L==plat or M==plat or R==plat) then								--Jumpthrough
+			L = tile_id(inst, x+inst.hitbox_l+1, y+bottom +1)
+			C = tile_id(inst, x+inst.hitbox_hc, y+bottom +1)
+			R = tile_id(inst, x+inst.hitbox_r, y+bottom +1)
 			if L==0 and C==0 and R==0 then												--Above platform or in free tile
-				L = tile_id(inst, x+inst.hitbox_l+1,	y+bottom)
-				C = tile_id(inst, x+inst.hitbox_hc,		y+bottom)
-				R = tile_id(inst, x+inst.hitbox_r,		y+bottom)
-				if L==plat or C==plat or R==plat then
-					inst.grounded = true
-				end
+				inst.grounded = true
+			end
+			if band(inst.buttons, down)==down and band(inst.buttons,jump)==jump then
+				inst.grounded = false
 			end
 		end
 	end
+end
+
+function ground_check_moving_platforms(inst)
+    if not inst.grounded then
+        local mp = collision_check_play2plat(inst,inst.POS+vmath.vector3(0,-1,0))
+        if mp~=nil then
+            inst.grounded = true
+        end
+    end
 end
 
 function ledge_collision(inst)
 	if inst.spd.y <= 0 or band(inst.buttons, down)==down then                       --Going down
 		if not inst.on_ledge then                                                   --NOT ON LEDGE
 			if inst.xinput~=0 then                                                  --HAVE DIRECTION
-				local x = inst.MY_POS.x
-				local y = inst.MY_POS.y
+				local x = inst.POS.x
+				local y = inst.POS.y
 				local vsp = inst.spd.y
 				local side = nil
 				if inst.xinput > 0 then
@@ -342,7 +607,7 @@ function ledge_collision(inst)
 						local h = tile_height(inst, tnext, x+side, y+ledge+vsp)
 						if h>= y+ledge+vsp then                                     --Was going below ledge
 							inst.on_ledge = true
-							inst.MY_POS.y = h-ledge
+							inst.POS.y = h-ledge
 						else                                                        --Bellow ledge to catch it
 							inst.on_ledge = false
 						end
@@ -353,7 +618,7 @@ function ledge_collision(inst)
 					local h = tile_height(inst, tnow, x+side, y+ledge)
 					if h== y+ledge then                                             --On the right height for latching to a ledge
 						inst.on_ledge = true
-						inst.MY_POS.y = h-ledge
+						inst.POS.y = h-ledge
 					else                                                            --Bellow ledge to catch it
 						inst.on_ledge = false
 					end
@@ -383,12 +648,12 @@ function ledge_collision(inst)
 	end
 end
 
-function ledge_collision_dt(inst, dt)
+function ledge_collision(inst, dt)
 	if inst.spd.y <= 0 and band(inst.buttons, down)~=down then                       --Going down
 		if not inst.on_ledge then                                                   --NOT ON LEDGE
 			if inst.xinput~=0 then                                                  --HAVE DIRECTION
-				local x = inst.MY_POS.x
-				local y = inst.MY_POS.y
+				local x = inst.POS.x
+				local y = inst.POS.y
 				local vsp = inst.spd.y
 				local side = nil
 				if inst.xinput > 0 then
@@ -405,7 +670,7 @@ function ledge_collision_dt(inst, dt)
 						local h = tile_height(inst, tnext, x+side, y+ledge+vsp)
 						if h>= y+ledge+vsp then                                     --Was going below ledge
 							inst.on_ledge = true
-							inst.MY_POS.y = h-ledge
+							inst.POS.y = h-ledge
 						else                                                        --Bellow ledge to catch it
 							inst.on_ledge = false
 						end
@@ -416,7 +681,7 @@ function ledge_collision_dt(inst, dt)
 					local h = tile_height(inst, tnow, x+side, y+ledge)
 					if h== y+ledge then                                             --On the right height for latching to a ledge
 						inst.on_ledge = true
-						inst.MY_POS.y = h-ledge
+						inst.POS.y = h-ledge
 					else                                                            --Bellow ledge to catch it
 						inst.on_ledge = false
 					end
@@ -438,14 +703,14 @@ function ledge_collision_dt(inst, dt)
 	if inst.on_ledge then
 		if inst.last_ledge == 0 then
 			inst.last_ledge = inst.xinput
-			inst.ledge_trig = true
+			inst.trig_ledge = true
 		else
-			inst.ledge_trig = false
+			inst.trig_ledge = false
 		end
 		inst.spd.y = 0
 		--RESET WALLSLIDE VARIABLES
 		inst.wallsliding = false
-		inst.wallslide_trig = false
+		inst.trig_wallslide = false
 		inst.last_wall = 0
 	else
 		inst.last_ledge = 0
@@ -453,14 +718,14 @@ function ledge_collision_dt(inst, dt)
 end
 
 function cliff_collision(inst)														--Useful for enemies not to run over a cliff
-	if inst.cliff_trig then																--Reset trigger flag
-		inst.cliff_trig = false
+	if inst.trig_cliff then																--Reset trigger flag
+		inst.trig_cliff = false
 	end
 	if inst.grounded then
 		local hsp = inst.spd.x
 		if hsp~=0 then
-			local x = inst.MY_POS.x
-			local y = inst.MY_POS.y + inst.hitbox_b +1
+			local x = inst.POS.x
+			local y = inst.POS.y + inst.hitbox_b +1
 			y = floor(y/TILE_SIZE) * TILE_SIZE +1
 			local side = nil
 			if hsp > 0 then
@@ -476,9 +741,9 @@ function cliff_collision(inst)														--Useful for enemies not to run over
 					x = math.ceil((x+side+hsp)/TILE_SIZE) * TILE_SIZE -side				--Snap to the tiles right side
 				end
 				--COLLIDE
-				inst.MY_POS.x = x
+				inst.POS.x = x
 				inst.spd.x = 0
-				inst.cliff_trig = true
+				inst.trig_cliff = true
 			end
 		end
 	end
@@ -488,14 +753,14 @@ function can_wallslide(inst, h_dir)													--Check if can wallslide
 	if band(inst.buttons, down)~=down and not inst.on_ledge then
 		if not inst.wallsliding then													--Not attached
 			if h_dir==0 then															--Not pressing any direction
-				if inst.wallslide_trig then												--Remove trigger frag
-					inst.wallslide_trig = false
+				if inst.trig_wallslide then												--Remove trigger frag
+					inst.trig_wallslide = false
 				end
 				return false
 			else
 				if inst.last_wall == inst.xinput then									--Have latched to wall this direction (simple solution to disable same wall)
-					if inst.wallslide_trig then											--Remove trigger frag
-						inst.wallslide_trig = false
+					if inst.trig_wallslide then											--Remove trigger frag
+						inst.trig_wallslide = false
 					end
 					return false
 				else
@@ -505,27 +770,27 @@ function can_wallslide(inst, h_dir)													--Check if can wallslide
 					elseif h_dir<0 then
 						side = inst.hitbox_l
 					end
-					local x = inst.MY_POS.x
-					local T = tile_id(inst, inst.MY_POS.x+side, inst.MY_POS.y+inst.hitbox_t)
+					local x = inst.POS.x
+					local T = tile_id(inst, inst.POS.x+side, inst.POS.y+inst.hitbox_t)
 					if T==solid1 then													--If tile is solid block
 						if h_dir>0 then													--Save this direction for same wall latch disabling
 							inst.last_wall = 1
 						elseif h_dir<0 then
 							inst.last_wall = -1
 						end
-						inst.wallslide_trig = true										--Trigger flag
+						inst.trig_wallslide = true										--Trigger flag
 						return true
 					else
-						if inst.wallslide_trig then										--Remove trigger frag
-							inst.wallslide_trig = false
+						if inst.trig_wallslide then										--Remove trigger frag
+							inst.trig_wallslide = false
 						end
 						return false
 					end
 				end
 			end
 		else																			--Already latched to the wall
-			if inst.wallslide_trig then													--Remove trigger frag
-				inst.wallslide_trig = false
+			if inst.trig_wallslide then													--Remove trigger frag
+				inst.trig_wallslide = false
 			end
 			local side = nil
 			if inst.last_wall>0 then
@@ -533,120 +798,32 @@ function can_wallslide(inst, h_dir)													--Check if can wallslide
 			elseif inst.last_wall<0 then
 				side = inst.hitbox_l
 			end
-			local x = inst.MY_POS.x
-			local T = tile_id(inst, inst.MY_POS.x+side, inst.MY_POS.y+inst.hitbox_t)	--Check tile ID
+			local x = inst.POS.x
+			local T = tile_id(inst, inst.POS.x+side, inst.POS.y+inst.hitbox_t)	--Check tile ID
 			if T==solid1 then															--Tile is solid block
 				return true
 			else																		--Tile is not solid block
-				if inst.wallslide_trig then												--Remove trigger frag
-					inst.wallslide_trig = false
+				if inst.trig_wallslide then												--Remove trigger frag
+					inst.trig_wallslide = false
 				end
 				return false
 			end
 		end
 	else
-		if inst.wallslide_trig then														--Remove trigger frag
-			inst.wallslide_trig = false
+		if inst.trig_wallslide then														--Remove trigger frag
+			inst.trig_wallslide = false
 		end
 		return false
 	end
 end
 
-function platform_collision(inst)
-	local vsp = inst.spd.y
-	if vsp<=0 and inst.grounded==false then
-		if not (band(inst.buttons, down)==down and band(inst.buttons, jump)==jump) then
-			local x = inst.MY_POS.x
-			local y = inst.MY_POS.y
-			local bottom = inst.hitbox_b
-			local L = tile_id(inst, x+inst.hitbox_l+1, y+bottom +1)
-			local C = tile_id(inst, x+inst.hitbox_hc, y+bottom +1)
-			local R = tile_id(inst, x+inst.hitbox_r, y+bottom +1)
-			if L==0 and C==0 and R==0 then												--Above platform or in free tile
-				L = tile_id(inst, x+inst.hitbox_l+1, y+bottom +vsp)
-				C = tile_id(inst, x+inst.hitbox_hc, y+bottom +vsp)
-				R = tile_id(inst, x+inst.hitbox_r, y+bottom +vsp)
-				if L==plat or C==plat or R==plat then
-					y = math.ceil((y+bottom+vsp)/TILE_SIZE) * TILE_SIZE -bottom
-					inst.landed = true
-					inst.grounded = true
-					inst.MY_POS.y = y
-					inst.spd.y = 0
-				end
-			end
-		end
-	end
-end
-
-function h_move(inst)
-	if inst.wallsliding then														--Wallslide
-		--
-	elseif inst.on_ledge then
-		--
-	else
-		local hin = inst.xinput														--xinput set in get_xinput()
-		local hsp = inst.spd.x
-		if hin ~= 0 then															--Move
-			hsp = hsp + hin * inst.ACC
-			hsp = clamp(hsp, -inst.MAX, inst.MAX)
-		else																		--deaccelerate
-			hsp = approach(hsp, 0, inst.DCC)										--(value, goal, ammount)
-		end
-		inst.spd.x = hsp
-	end
-end
-
-function h_move_dt(inst, dt)
-	
-	if inst.wallsliding then														--Wallslide
-		--
-	elseif inst.on_ledge then
-		--
-	else
-		local hin = inst.xinput														--xinput set in get_xinput()
-		local hsp = inst.spd.x /dt
-		if hin ~= 0 then															--Move
-			hsp = hsp + hin * (inst.ACC * dt)
-			hsp = clamp(hsp, -inst.MAX, inst.MAX)
-		else																		--deaccelerate
-			hsp = approach(hsp, 0, inst.DCC *dt)										--(value, goal, ammount)
-		end
-		inst.spd.x = hsp *dt
-	end
-end
-
-function h_move_slopes_dt(inst, dt)
-	
-	if inst.wallsliding then														--Wallslide
-		--
-	elseif inst.on_ledge then
-		--
-	else
-		local move_mult = 1															--Reduce speed if on slopes
-		local M = tile_id(inst, inst.MY_POS.x+inst.hitbox_hc, inst.MY_POS.y+inst.hitbox_b)
-		if M==solid2 or M==solid3 then
-			move_mult = SLOPE_SPD1.x
-		elseif M==solid4 or M==solid5 or M==solid6 or M==solid7 then
-			move_mult = SLOPE_SPD2.x
-		end
-		local hin = inst.xinput														--xinput set in get_xinput()
-		local hsp = inst.spd.x /dt
-		if hin ~= 0 then															--Move
-			hsp = hsp + hin * (inst.ACC * dt *move_mult)
-			hsp = clamp(hsp, -inst.MAX *move_mult, inst.MAX *move_mult)
-		else																		--deaccelerate
-			hsp = approach(hsp, 0, inst.DCC *dt *move_mult)										--(value, goal, ammount)
-		end
-		inst.spd.x = hsp *dt
-	end
-end
-
-function h_collide(inst)
+--horizontal collisions
+function h_collide_blocks(inst)
 	local hsp  = inst.spd.x
-	if inst.wall_trig then inst.wall_trig = false end
+	if inst.trig_wall then inst.trig_wall = false end
 	if hsp ~= 0 then																--Decouple code if not needed
-		local x = inst.MY_POS.x
-		local y = inst.MY_POS.y
+		local x = inst.POS.x
+		local y = inst.POS.y
 		local side = nil
 		if hsp > 0 then
 			side = inst.hitbox_r
@@ -664,20 +841,20 @@ function h_collide(inst)
 				x = math.ceil((x+side+hsp)/TILE_SIZE) * TILE_SIZE -side				--Snap to the tiles right side
 			end
 			hsp  = 0 																--reset speed after collision
-			inst.wall_trig = true													--Trigger wall collision flag
+			inst.trig_wall = true													--Trigger wall collision flag
 		end
 
-		inst.MY_POS.x = x + hsp 													--Update coordinates variable
+		inst.POS.x = x + hsp 														--Update coordinates variable
 		inst.spd.x = hsp															--Update speed variable
 	end
 end
 
 function h_collide_slope(inst)
 	local hsp  = inst.spd.x
-	if inst.wall_trig then inst.wall_trig = false end
+	if inst.trig_wall then inst.trig_wall = false end
 	if hsp ~= 0 then																--Decouple code if not needed
-		local x = inst.MY_POS.x
-		local y = inst.MY_POS.y
+		local x = inst.POS.x
+		local y = inst.POS.y
 		local side = nil
 		if hsp > 0 then
 			side = inst.hitbox_r
@@ -699,183 +876,94 @@ function h_collide_slope(inst)
 				x = math.ceil((x+side+hsp)/TILE_SIZE) * TILE_SIZE -side				--Snap to the tiles right side
 			end
 			hsp  = 0 																--reset speed after collision
-			inst.wall_trig = true													--Trigger wall collision flag
+			inst.trig_wall = true													--Trigger wall collision flag
 		end
 
-		inst.MY_POS.x = x + hsp 													--Update coordinates variable
+		inst.POS.x = x + hsp 													--Update coordinates variable
 		inst.spd.x = hsp															--Update speed variable
 	end
 end
 
-function v_move_platformer(inst)
-	local vsp = inst.spd.y
-	if inst.grounded then												--On ground
-		inst.doublejump = false											--If use doublejump it's disabled on ground
-		inst.last_wall = 0												--Reset Last wall (for allowing walljump from same wall once in a row)
-		inst.jmp_buf_tmr = 0											--Reset jump buffer
-		if inst.jumping and bit.band(inst.buttons, jump)==0 then		--Release jump button
-			inst.jumping = false
+function h_collide_topdown(inst)
+	local hsp  = inst.spd.x
+	if inst.trig_wall_x then inst.trig_wall_x = false end
+	if hsp ~= 0 then																--Decouple code if not needed
+		local x = inst.POS.x
+		local y = inst.POS.y
+		local side = nil
+		if hsp > 0 then
+			side = inst.hitbox_r
+		else
+			side = inst.hitbox_l
 		end
-		if inst.wallsliding then										--disable wallsliding
-			inst.wallsliding = false
+		local T = tile_id(inst, x+side+hsp,		y+inst.hitbox_t)					--check top corner
+		local M = tile_id(inst, x+side+hsp,		y+inst.hitbox_vc)					--check midle of the side
+		local B = tile_id(inst, x+side+hsp,		y+inst.hitbox_b+1)					--check bottom corner
+
+		if B==solid1 or M==solid1 or T==solid1 then
+			if hsp > 0 then															--Moving to the right
+				x = math.ceil((x+side+hsp)/TILE_SIZE) * TILE_SIZE -TILE_SIZE -side	--Snap to the tiles left side
+			else																	-- Moving to the left or idle
+				x = math.ceil((x+side+hsp)/TILE_SIZE) * TILE_SIZE -side				--Snap to the tiles right side
+			end
+			hsp  = 0 																--reset speed after collision
+			inst.trig_wall_x = true													--Trigger wall collision flag
 		end
 
-		if bit.band(inst.buttons, jump)==jump and not inst.jumping and (bit.band(inst.buttons, down)==0) then --New jump executed
-			vsp = inst.START_JUMP
-			inst.grounded = false
-			inst.jumping = true
-		end
-	else 																--Not on the ground
-		if not inst.on_ledge then
-			vsp = vsp + inst.GRAVITY									--Apply gravity
-		end
-		if vsp>0 then													--Going up
-			if inst.jmp_buf_tmr~=JUMP_BUFFER then						--Disable jump buffer
-				inst.jmp_buf_tmr = JUMP_BUFFER
-			end
-		else															--Going down
-			if can_wallslide(inst, inst.xinput) then					--Check wallsliding
-				inst.wallsliding = true
-			elseif inst.wallsliding then
-				inst.wallsliding = false
-			end
-			if inst.wallsliding then
-				if bit.band(inst.buttons, jump)==jump and not inst.jumping then --New jump executed
-					vsp = inst.START_JUMP
-					inst.jumping = true
-					inst.wallsliding = false
-					if inst.xinput == -inst.last_wall then						--Presing away from wall
-						inst.spd.x = inst.xinput * inst.MAX
-					end
+		inst.POS.x = x + hsp 														--Update coordinates variable
+		inst.spd.x = hsp															--Update speed variable
+	end
+end
+
+function h_collide_play2plat(inst)													--player against platform
+    local hsp = inst.spd.x
+    if hsp~=0 then
+        local mp = collision_check_play2plat(inst,inst.POS+vmath.vector3(hsp,0,0))
+        if mp~=nil then
+			if hsp>0 then
+				local posx = mp.POS.x - inst.hitbox_r
+				local dist = inst.POS.x +hsp -posx
+				if hsp<=dist then
+					inst.POS.x = posx
+					inst.spd.x = 0
 				end
-				if vsp < inst.WALLSPEED then vsp = inst.WALLSPEED end	--Limit wallslide speed
-			else
-				if vsp < inst.MAX_DOWN then vsp = inst.MAX_DOWN end		--Limit fall speed
-			end
-			if inst.jmp_buf_tmr < JUMP_BUFFER then						--Count jump buffer timer
-				inst.jmp_buf_tmr = inst.jmp_buf_tmr +1
-			end
-		end
-		
-		if bit.band(inst.buttons, jump)~=jump then						--Released jump button
-			if vsp > inst.RELEASE_JUMP then								--Cut down jump speed
-				vsp = inst.RELEASE_JUMP
-			end
-			inst.jumping = false
-		else															--Holding jump button
-			if not inst.jumping and inst.jmp_buf_tmr < JUMP_BUFFER then
-				vsp = inst.START_JUMP
-				inst.jumping = true
-			elseif not inst.jumping and inst.doublejump then			--If released jump and allowed doublejump
-				vsp = inst.JUMP_START
-				inst.jumping = true
-				inst.doublejump = false
-			end
-		end
-	end
-	inst.spd.y = vsp										--Save vertical speed
-end
-
-function v_move_platformer_dt(inst, dt)
-	local vsp = inst.spd.y /dt
-	if inst.grounded then												--On ground
-		inst.doublejump = false											--If use doublejump it's disabled on ground
-		inst.last_wall = 0												--Reset Last wall (for allowing walljump from same wall once in a row)
-		inst.jmp_buf_tmr = 0											--Reset jump buffer
-		if inst.jumping and bit.band(inst.buttons, jump)==0 then		--Release jump button
-			inst.jumping = false
-		end
-		if inst.wallsliding then										--disable wallsliding
-			inst.wallsliding = false
-		end
-
-		if band(inst.buttons, jump)==jump and not inst.jumping and band(inst.buttons, down)~=down then --New jump executed
-			vsp = inst.START_JUMP
-			inst.grounded = false
-			inst.jumping = true
-		end
-		if inst.fast_fall then inst.fast_fall = false end				--Not fast falling
-	else 																--Not on the ground
-		if not inst.on_ledge then
-			vsp = vsp + inst.GRAVITY *dt								--Apply gravity
-		end
-		if vsp>0 then													--Going up
-			if inst.jmp_buf_tmr~=JUMP_BUFFER then						--Disable jump buffer
-				inst.jmp_buf_tmr = JUMP_BUFFER
-			end
-		else															--Going down
-			if can_wallslide(inst, inst.xinput) then					--Check wallsliding
-				inst.wallsliding = true
-			elseif inst.wallsliding then
-				inst.wallsliding = false
-			end
-			if inst.wallsliding then
-				if bit.band(inst.buttons, jump)==jump and not inst.jumping then --New jump executed
-					vsp = inst.START_JUMP
-					inst.jumping = true
-					inst.wallsliding = false
-					if inst.xinput == -inst.last_wall then						--Presing away from wall
-						inst.spd.x = inst.xinput * inst.MAX *dt					--Jump afay from wall with full speed
-					end
+			elseif hsp<0 then
+				local posx = mp.POS.x +mp.width +hsp -inst.hitbox_l
+				local dist = inst.POS.x -posx
+				if hsp>=dist then
+					inst.POS.x = posx
+					inst.spd.x = 0
 				end
-				if vsp < inst.WALLSPEED then vsp = inst.WALLSPEED end	--Limit wallslide speed
-			else
-				if vsp < inst.MAX_DOWN then								--Limit fall speed
-					vsp = inst.MAX_DOWN
-					inst.fast_fall = true								--Fast falling
-				else
-					if inst.fast_fall then inst.fast_fall = false end	--Not fast falling
-				end		
-			end
-			if inst.jmp_buf_tmr < JUMP_BUFFER then						--Count jump buffer timer
-				inst.jmp_buf_tmr = inst.jmp_buf_tmr +1*dt
-			end
-		end
-		
-		if band(inst.buttons, jump)~=jump then							--Released jump button
-			if vsp > inst.RELEASE_JUMP then								--Cut down jump speed
-				vsp = inst.RELEASE_JUMP
-			end
-			inst.jumping = false
-		else															--Holding jump button
-			if not inst.jumping and inst.jmp_buf_tmr < JUMP_BUFFER and band(inst.buttons, down)~=down then
-				vsp = inst.START_JUMP
-				inst.jumping = true
-			elseif not inst.jumping and inst.doublejump then			--If released jump and allowed doublejump
-				vsp = inst.JUMP_START
-				inst.jumping = true
-				inst.doublejump = false
-			end
-		end
-	end
-	inst.spd.y = vsp*dt										--Save vertical speed
+            end
+        end
+    end
 end
 
-function v_move_topdown(inst)														--Vertical top down movement
-	--Get direction
-	local vin = 0
-	if (bit.band(inst.buttons, up) > 0) then										--bitmasking for up button
-		vin = vin + 1
+function h_collision_plat2play(inst)												--platform against player
+	local hsp = inst.spd.x
+	if hsp~=0 then
+		local player = collision_check_plat2play(inst, inst.POS+ vmath.vector3(hsp,0,0))
+		if player~=nil then
+			--player.POS.x = player.POS.x + hsp
+			if hsp>0 then
+				player.POS.x = inst.POS.x + inst.width - player.hitbox_l +1
+			elseif hsp<0 then
+				player.POS.x = inst.POS.x - player.hitbox_r -1
+			end
+		end
+		inst.POS.x = inst.POS.x + hsp
 	end
-	if (bit.band(inst.buttons, down) > 0) then										--bitmasking for down button
-		vin = vin - 1
-	end
-
-	local vsp = inst.spd.y
-	if vin ~= 0 then						--move
-		vsp = vsp + vin * inst.ACC
-		vsp = clamp(vsp, -inst.MAX, inst.MAX)
-	else																			--deaccelerate
-		vsp = approach(vsp, 0, inst.DCC)											--(value, goal, ammount)
-	end
-	inst.spd.y = vsp
 end
 
+--vertical collisions
 function v_collide_blocks(inst)														--Simple block tile collision
+	if inst.trig_landed then inst.trig_landed = false end
+	if inst.trig_ceiling then inst.trig_ceiling = false end
+	
 	local vsp  = inst.spd.y
 	if vsp ~= 0 then																--Decouple code if not needed
-		local x = inst.MY_POS.x
-		local y = inst.MY_POS.y
+		local x = inst.POS.x
+		local y = inst.POS.y
 		local side = nil
 		if vsp > 0 then
 			side = inst.hitbox_t
@@ -889,23 +977,27 @@ function v_collide_blocks(inst)														--Simple block tile collision
 		if R==solid1 or M==solid1 or L==solid1 then
 			if vsp > 0 then															--Moving to the right
 				y = math.ceil((y+side+vsp)/TILE_SIZE) * TILE_SIZE -TILE_SIZE -side	--Snap to the tiles left side
+				inst.trig_ceiling = true
 			else																	-- Moving to the left or idle
 				y = math.ceil((y+side+vsp)/TILE_SIZE) * TILE_SIZE -side				--Snap to the tiles right side
+				inst.trig_landed = true
 			end
-			vsp  = 0 --reset speed after collision
+			vsp  = 0			--reset speed after collision
 		end
 
-		inst.MY_POS.y = y + vsp --Update coordinates variable
-		inst.spd.y = vsp	--Update speed variable
+		inst.POS.y = y + vsp	--Update coordinates variable
+		inst.spd.y = vsp		--Update speed variable
 	end
 end
 
 function v_collide_slopes(inst)														--Simple block tile collision
-	local x = inst.MY_POS.x
-	local y = inst.MY_POS.y
+	if inst.trig_landed then inst.trig_landed = false end
+	if inst.trig_ceiling then inst.trig_ceiling = false end
+	
+	local x = inst.POS.x
+	local y = inst.POS.y
 	local vsp  = inst.spd.y
 
-	vsp  = vsp-- - frac																	--Leave remainder in integer value
 	if vsp ~= 0 then																	--Decouple code if not moving
 		if vsp > 0 then																	--Going up
 			local side = inst.hitbox_t
@@ -915,6 +1007,7 @@ function v_collide_slopes(inst)														--Simple block tile collision
 
 			if R==solid1 or M==solid1 or L==solid1 then
 				y = math.ceil((y+side+vsp)/TILE_SIZE) * TILE_SIZE -TILE_SIZE -side		--Snap to the tiles bottom side
+				inst.trig_ceiling = true
 				vsp  = 0 																--reset speed after collision
 			end
 		else																			--Going down
@@ -940,7 +1033,7 @@ function v_collide_slopes(inst)														--Simple block tile collision
 						vsp  = 0
 					end
 				end
-				if vsp == 0 then inst.landed=true end										--Trigger landing flag
+				if vsp == 0 then inst.trig_landed=true end										--Trigger landing flag
 			end
 		end
 	end
@@ -962,48 +1055,178 @@ function v_collide_slopes(inst)														--Simple block tile collision
 			vsp = 0
 		end
 	end
-	inst.MY_POS.y = y + vsp --Update position variable
+	inst.POS.y = y + vsp --Update position variable
 	inst.spd.y = vsp	--Update speed variable
 end
 
-function physics_update_topdown(inst)
-	get_dir(inst)
-	h_move(inst)
-	h_collide(inst)
-	v_move_topdown(inst)
-	v_collide_blocks(inst)
-	go.set_position(inst.MY_POS, inst.MY_URL)
+function v_collide_topdown(inst)
+	local vsp  = inst.spd.y
+	if inst.trig_wall_y then inst.trig_wall_y = false end
+	if vsp ~= 0 then																--Decouple code if not needed
+		local x = inst.POS.x
+		local y = inst.POS.y
+		local side = nil
+		if vsp > 0 then
+			side = inst.hitbox_t
+		else
+			side = inst.hitbox_b
+		end
+		local R = tile_id(inst, x+inst.hitbox_r,		y+side+vsp)					--check top corner
+		local M = tile_id(inst, x+inst.hitbox_hc,		y+side+vsp)					--check midle of the side
+		local L = tile_id(inst, x+inst.hitbox_l+1,		y+side+vsp)					--check bottom corner
+
+		if L==solid1 or M==solid1 or R==solid1 then
+			if vsp > 0 then															--Moving to the right
+				y = math.ceil((y+side+vsp)/TILE_SIZE) * TILE_SIZE -TILE_SIZE -side	--Snap to the tiles left side
+			else																	-- Moving to the left or idle
+				y = math.ceil((y+side+vsp)/TILE_SIZE) * TILE_SIZE -side				--Snap to the tiles right side
+			end
+			vsp  = 0 																--reset speed after collision
+			inst.trig_wall_y = true													--Trigger wall collision flag
+		end
+
+		inst.POS.y = y + vsp 														--Update coordinates variable
+		inst.spd.y = vsp															--Update speed variable
+	end
+end
+
+function jumpthrough_collision(inst)													--Jumpthrough platform
+	local vsp = inst.spd.y
+	if vsp<=0 and inst.grounded==false then
+		if not (band(inst.buttons, down)==down and band(inst.buttons, jump)==jump) then
+			local x = inst.POS.x
+			local y = inst.POS.y
+			local bottom = inst.hitbox_b
+			local L = tile_id(inst, x+inst.hitbox_l+1, y+bottom +1)
+			local C = tile_id(inst, x+inst.hitbox_hc, y+bottom +1)
+			local R = tile_id(inst, x+inst.hitbox_r, y+bottom +1)
+			if L==0 and C==0 and R==0 then												--Above platform or in free tile
+				L = tile_id(inst, x+inst.hitbox_l+1, y+bottom +vsp)
+				C = tile_id(inst, x+inst.hitbox_hc, y+bottom +vsp)
+				R = tile_id(inst, x+inst.hitbox_r, y+bottom +vsp)
+				if L==plat or C==plat or R==plat then
+					y = math.ceil((y+bottom+vsp)/TILE_SIZE) * TILE_SIZE -bottom
+					inst.trig_landed = true
+					inst.grounded = true
+					inst.POS.y = y
+					inst.spd.y = 0
+				end
+			end
+		end
+	end
+end
+
+function v_collide_play2plat(inst)													--moving platform
+    local vsp = inst.spd.y
+    if vsp~=0 then
+        mp = collision_check_play2plat(inst,inst.POS+vmath.vector3(0,vsp,0))
+        if mp~=nil then
+            if vsp>0 then
+				local posy = mp.POS.y -mp.height -inst.hitbox_t
+				local dist = inst.POS.y+vsp - posy
+				if vsp<=dist then
+					inst.POS.y = posy
+					inst.spd.y = 0
+				end
+			elseif vsp<0 then
+				local posy = mp.POS.y - inst.hitbox_b
+				local dist = inst.POS.y+vsp - posy
+				if vsp>=dist then
+					inst.POS.y = posy
+					inst.spd.y = 0
+				end
+            end
+        end
+    end
+end
+
+function v_collision_plat2play(inst)												--platform against player
+	local vsp = inst.spd.y
+	if vsp~=0 then
+		local player = collision_check_plat2play(inst, inst.POS+ vmath.vector3(0,vsp,0))
+		if player~=nil and player~=inst.carry then
+			player.POS.y = player.POS.y + vsp
+			--[[
+			if vsp<0 then
+				player.POS.y = inst.POS.y - inst.height - player.hitbox_t
+			elseif vsp>0 then
+				player.POS.y = inst.POS.y - player.hitbox_b
+			end
+			]]
+		end
+		inst.POS.y = inst.POS.y + vsp
+	end
+end
+
+--PHYSICS UPDATES
+function physics_update_topdown(inst, dt)
+	dt = dt*TIME_MULT*60															--I like to have speed variables to be px/frame (60fps) so dt*60
+	get_dir_input(inst)
+	h_move_topdown(inst, dt)
+	h_collide_topdown(inst)
+	v_move_topdown(inst, dt)
+	v_collide_topdown(inst)
+	go.set_position(inst.POS, inst.URL)
 
 	--Reset buttons
 	inst.buttons = 0
 end
 
-function physics_update_platformer(inst)
-	get_xinput(inst)
-	h_move(inst)
-	h_collide(inst)
-	ground_check_slopes(inst)
-	v_move_platformer(inst)
-	ledge_collision(inst)
-	v_collide_slopes(inst)
-	go.set_position(inst.MY_POS, inst.MY_URL)
-	
-	--Reset buttons
-	inst.buttons = 0
-end
-
-function physics_update_platformer_dt(inst, dt)
+function physics_update_platformer_block(inst, dt)
 	dt = dt*TIME_MULT*60															--I like to have speed variables to be px/frame (60fps) so dt*60
 	get_xinput(inst)
-	h_move_slopes_dt(inst, dt)
+	h_move_slopes(inst, dt)
+	h_collide_blocks(inst)
+	ground_check_blocks(inst)
+    v_move_platformer(inst, dt)
+	jumpthrough_collision(inst)
+	ledge_collision(inst, dt)
+	v_collide_blocks(inst)
+	go.set_position(inst.POS, inst.URL)
+	
+	--Reset buttons
+	inst.buttons = 0
+end
+
+function physics_update_platformer_slopes(inst, dt)
+	dt = dt*TIME_MULT*60															--I like to have speed variables to be px/frame (60fps) so dt*60
+	get_xinput(inst)
+	h_move_blocks(inst, dt)
 	h_collide_slope(inst)
 	ground_check_slopes(inst)
-	v_move_platformer_dt(inst, dt)
-	platform_collision(inst)
-	ledge_collision_dt(inst, dt)
+    v_move_platformer(inst, dt)
+	jumpthrough_collision(inst)
+	ledge_collision(inst, dt)
 	v_collide_slopes(inst)
-	go.set_position(inst.MY_POS, inst.MY_URL)
-	
+	go.set_position(inst.POS, inst.URL)
+
+	--Reset buttons
+	inst.buttons = 0
+end
+--MOVING PLATFORM
+function physics_update_moving_platform(inst, dt)
+	inst.time = mod((inst.time + dt/inst.moveTime), 1)								--update position time
+	player_on_platform(inst)
+	h_moving_plat(inst,dt)
+	h_collision_plat2play(inst)
+	v_moving_plat(inst,dt)
+	v_collision_plat2play(inst)
+	go.set_position(inst.POS, inst.URL)
+end
+--ENEMIES
+function physics_update_walker_dt(inst, dt)											--Enemy physics include cliff collision
+	dt = dt*TIME_MULT*60															--I like to have speed variables to be px/frame (60fps) so dt*60
+	get_xinput(inst)
+	h_move_slopes(inst, dt)
+	h_collide_slope(inst)
+	cliff_collision(inst)
+	ground_check_slopes(inst)
+	v_move_platformer(inst, dt)
+	jumpthrough_collision(inst)
+	ledge_collision(inst, dt)
+	v_collide_slopes(inst)
+	go.set_position(inst.POS, inst.URL)
+
 	--Reset buttons
 	inst.buttons = 0
 end
