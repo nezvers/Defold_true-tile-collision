@@ -57,6 +57,8 @@ physics_update_platformer_slopes;
 physics_update_topdown;  
 physics_update_walker.
 
+Please look into init_physics() function because there you'll find needed flags and triggers for your objects (Abilities, States, triggers) to trigger sprite animations/ sounds or create your own AI behaviour.
+
 ## Prepare tiles
 Tiles doesn't need collision shapes. Collision happens using tile IDs from tilesource.  
 Suggested method would be to have tilemap with at least 2 layers where one of them is invisible and used for placing solid tiles, or use separate tilemap with dedicated tilesource (if you have more than one tilesources).  
@@ -74,6 +76,10 @@ function set_tiles(tile1, tile2, tile3, tile4, tile5, tile6, tile7, tile8)
 end
 ```
 Values are IDs in tilesource used for collision. IDs in tilesource are counted from left to right and top to down, starting from 1.
+
+## Create your own _physics_update_
+Since dependancy LUA modules are read only, you can create module that refer to TTC (require "true_tile_collision.true_tile_collision") and create your own physics updates (for players and enemies) by using modular system from TTC.  
+For reference you can use TTC built-in physics updates and many physics functions that's coded inside TTC.
 
 # HAPPY GAMEDEV
 ## Cheers, _NeZvers_

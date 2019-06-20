@@ -145,12 +145,12 @@ function init_physics(inst, url, solidMap, solidLayer, tile_size, run_maxspeed, 
 	inst.xinput		  		= 0							--for platformer
 	inst.dir_input	  		= vmath.vector3(0, 0, 0)	--for top-down
 	inst.jmp_buf_tmr  		= 0
-	inst.last_wall    		= 0
-	inst.last_ledge	  		= 0
+	inst.last_wall    		= 0		--Tracks latched walls (to the right = 1/ to the left = -1) and disable possiblility to latch to the same side more than once
+	inst.last_ledge	  		= 0		--Needed to check if still hanging
 	inst.hurtTimer    		= 0
 	inst.dashTimer    		= 0
-	inst.doublejump_count	= 0
-	inst.doublejump_max		= 1
+	inst.doublejump_count	= 0		--double jump counter
+	inst.doublejump_max		= 1		--how many double jumps allowed
 
 	--ABILITIES	
 	inst.can_doublejump		= true
@@ -186,7 +186,7 @@ function init_physics(inst, url, solidMap, solidLayer, tile_size, run_maxspeed, 
 	inst.hitbox_b	  		= 0
 	inst.hitbox_hc    		= 0
 	inst.hitbox_vc    		= 0
-	inst.hitbox_ledge 		= 0
+	inst.hitbox_ledge 		= 0		--vertical distance from origin of ledge grab (by default set in set_hitbox)
 end
 
 function set_hitbox(inst, hitbox_r, hitbox_l, hitbox_t, hitbox_b)
