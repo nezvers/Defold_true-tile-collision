@@ -8,14 +8,14 @@ local SLOPE_SPD1	= vmath.normalize(vmath.vector3(1,1,0))		--Multiplier for walki
 local SLOPE_SPD2	= vmath.normalize(vmath.vector3(1,0.5,0))	--Multiplier for walking slopes
 
 --COLISION TILES
-local solid1 = 1					--solid block
-local solid2 = 2					--slope 45 righ
-local solid3 = 3					--slope 45 left
-local solid4 = 4					--slope 22.5 right 1/2
-local solid5 = 5					--slope 22.5 right 2/2
-local solid6 = 6					--slope 22.5 left 1/2
-local solid7 = 7					--slope 22.5 left 2/2
-local plat	 = 8					--Jumpthrough platform --NOT IMPLEMENTED
+local solid1	= 1		--solid block
+local solid2	= 2		--slope 45 righ
+local solid3	= 3		--slope 45 left
+local solid4	= 4		--slope 22.5 right 1/2
+local solid5	= 5		--slope 22.5 right 2/2
+local solid6	= 6		--slope 22.5 left 1/2
+local solid7	= 7		--slope 22.5 left 2/2
+local plat		= 8		--Jumpthrough platform
 
 --Will be used as bitmasks to check buttons
 local up     = 1
@@ -170,6 +170,7 @@ function init_physics(inst, url, solidMap, solidLayer, tile_size, run_maxspeed, 
 
 	--TRIGGERS						--Useful for triggering animations or states
 	inst.trig_landed		= false	--True when happens collision with ground
+	inst.trig_doublejump	= false --True when used doublejump
 	inst.trig_ledge   		= false	--True for first frame ledge is grabbed
 	inst.trig_wallslide 	= false	--True for first frame wallslide is triggered
 	inst.trig_wall	  		= false	--True when wall collision is triggered			(useful for enemy to turn around)
@@ -197,6 +198,17 @@ function set_hitbox(inst, hitbox_r, hitbox_l, hitbox_t, hitbox_b)
 	inst.hitbox_hc = math.ceil((inst.hitbox_r + inst.hitbox_l)/2)
 	inst.hitbox_vc = math.ceil((inst.hitbox_t + inst.hitbox_b)/2)
 	inst.hitbox_ledge = inst.hitbox_t +1
+end
+
+function set_tiles(tile1, tile2, tile3, tile4, tile5, tile6, tile7, tile8)
+	solid1	= tile1		--solid block
+	solid2	= tile2		--slope 45 righ
+	solid3	= tile3		--slope 45 left
+	solid4	= tile4		--slope 22.5 right 1/2
+	solid5	= tile5		--slope 22.5 right 2/2
+	solid6	= tile6		--slope 22.5 left 1/2
+	solid7	= tile7		--slope 22.5 left 2/2
+	plat	= tile8		--Jumpthrough platform
 end
 
 function button_up(inst)     inst.buttons = bor(inst.buttons, up)     end
@@ -335,6 +347,7 @@ end
 
 --VERTICAL MOVEMENT
 function v_move_platformer(inst, dt)
+	if inst.trig_doublejump then inst.trig_doublejump = false end		--reset trigger
 	local vsp = inst.spd.y /dt
 	if inst.grounded then												--On ground
 		inst.doublejump_count	= 0
@@ -403,6 +416,7 @@ function v_move_platformer(inst, dt)
 				vsp = inst.START_JUMP
 				inst.jumping = true
 				inst.doublejump_count = inst.doublejump_count +1															--increase doublejump counter
+				inst.trig_doublejump = true
 			end
 		end
 	end
@@ -979,7 +993,7 @@ function physics_update_platformer_slopes(inst, dt)
 end
 
 --ENEMIES
-function physics_update_walker_dt(inst, dt)											--Enemy physics include cliff collision
+function physics_update_walker(inst, dt)											--Enemy physics include cliff collision
 	dt = dt*TIME_MULT*60															--I like to have speed variables to be px/frame (60fps) so dt*60
 	get_xinput(inst)
 	h_move_slopes(inst, dt)
