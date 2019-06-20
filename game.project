@@ -14,3 +14,6 @@ input_method = HiddenInputField
 [project]
 title = TrueTileCollision
 
+[library]
+include_dirs = true_tile_collision
+
