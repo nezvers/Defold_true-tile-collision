@@ -406,7 +406,6 @@ function v_move_platformer(inst, dt)
 			end
 		end
 	end
-	print(vsp)
 	inst.spd.y = vsp*dt										--Save vertical speed
 end
 
