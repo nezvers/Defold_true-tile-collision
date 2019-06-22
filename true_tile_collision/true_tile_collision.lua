@@ -411,7 +411,7 @@ function v_move_platformer(inst, dt)
 			if not inst.jumping and inst.jmp_buf_tmr < JUMP_BUFFER and band(inst.buttons, down)~=down then
 				vsp = inst.START_JUMP
 				inst.jumping = true
-			elseif inst.can_doublejump and not inst.jumping and (inst.doublejump_count < inst.doublejump_max) then			--If released jump and allowed to doublejump
+			elseif inst.can_doublejump and band(inst.buttons,down)~=down and not inst.jumping and (inst.doublejump_count < inst.doublejump_max) then			--If released jump and allowed to doublejump
 				vsp = inst.START_JUMP
 				inst.jumping = true
 				inst.doublejump_count = inst.doublejump_count +1															--increase doublejump counter
