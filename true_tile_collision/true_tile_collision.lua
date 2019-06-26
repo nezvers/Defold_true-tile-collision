@@ -164,7 +164,7 @@ function init_physics(inst, url, solidMap, solidLayer, tile_size, run_maxspeed, 
 	--STATES	
 	inst.is_grounded	  	= false
 	inst.is_jumping	  		= false
-	inst.is_dashing	  		= false						--not included
+	inst.is_dashing	  		= false						
 	inst.is_wallsliding  	= false
 	inst.is_on_ledge	  	= false
 	inst.is_ledge_climbing  = false						--not included
