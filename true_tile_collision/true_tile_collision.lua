@@ -1,5 +1,5 @@
 --Functions by NeZvers
-local TIME_MULT		= 1											--For slow motion
+local TIME_MULT		= 1											--For slow motion NOT IMPLEMENTED YET
 local DT_MULT		= 60										--Delta time multiplier for px/frame values
 local TILE_SIZE		= 16										--default size
 local TILE_ROUND	= -TILE_SIZE + 1							--in case of bitwise calculations
@@ -141,12 +141,16 @@ function init_physics(inst, url, solidMap, solidLayer, tile_size, run_maxspeed, 
 	inst.WALLSPEED	  		= -ceil(jump_speed/5)		--wallsliding speed
 	inst.DASHSPEED			= run_maxspeed *2.5			--dashing speed
 	inst.DASHTIME			= 0.2						--time in dashing state (seconds)
+	inst.HURTTIME			= 0.3						--time in hurt state (seconds)
 
 	inst.spd          		= vmath.vector3(0,0,0)		--store movement speed
+	inst.kickback			= vmath.vector3(0,0,0)		--Speed for hurt state (set in got_hurt())
 
 	inst.buttons	  		= 0							--All pressed buttons stored with bitwise
 	inst.xinput		  		= 0							--for platformer
 	inst.dir_input	  		= vmath.vector3(0, 0, 0)	--for top-down
+	inst.xflip				= 1							--May be useful for flipping sprite or hurt kickback (1 or -1)
+	inst.yflip				= 1							--May be useful for flipping sprite or hurt kickback (1 or -1)
 	inst.jmp_buf_tmr  		= 0
 	inst.last_wall    		= 0							--Tracks latched walls (to the right = 1/ to the left = -1) and disable possiblility to latch to the same side more than once
 	inst.last_ledge	  		= 0							--Needed to check if still hanging
@@ -155,7 +159,8 @@ function init_physics(inst, url, solidMap, solidLayer, tile_size, run_maxspeed, 
 	inst.doublejump_count	= 0							--double jump counter
 	inst.doublejump_max		= 1							--how many double jumps allowed
 
-	--ABILITIES	
+	--ABILITIES
+	inst.can_input			= true
 	inst.can_doublejump		= true
 	inst.can_wallslide		= true
 	inst.can_ledgegrab		= true
@@ -167,8 +172,8 @@ function init_physics(inst, url, solidMap, solidLayer, tile_size, run_maxspeed, 
 	inst.is_dashing	  		= false						
 	inst.is_wallsliding  	= false
 	inst.is_on_ledge	  	= false
+	inst.is_hurt		  	= false
 	inst.is_ledge_climbing  = false						--not included
-	inst.is_hurt		  	= false						--not included
 
 	--TRIGGERS											--Useful for triggering animations or states
 	inst.trig_landed		= false						--True when happens collision with ground
@@ -213,13 +218,13 @@ function set_tiles(tile1, tile2, tile3, tile4, tile5, tile6, tile7, tile8)
 	plat	= tile8		--Jumpthrough platform
 end
 
-function button_up(inst)		inst.buttons = bor(inst.buttons, up)	end
-function button_down(inst)		inst.buttons = bor(inst.buttons, down)	end
-function button_left(inst)		inst.buttons = bor(inst.buttons, left)	end
-function button_right(inst)		inst.buttons = bor(inst.buttons, right)	end
-function button_jump(inst)		inst.buttons = bor(inst.buttons, jump)	end
-function button_dash(inst)		inst.buttons = bor(inst.buttons, dash)	end
-function button_start(inst)		inst.buttons = bor(inst.buttons, start)	end
+function button_up(inst)		if	inst.can_input	then	inst.buttons = bor(inst.buttons, up)	end	end
+function button_down(inst)		if	inst.can_input	then	inst.buttons = bor(inst.buttons, down)	end	end
+function button_left(inst)		if	inst.can_input	then	inst.buttons = bor(inst.buttons, left)	end	end
+function button_right(inst)		if	inst.can_input	then	inst.buttons = bor(inst.buttons, right)	end	end
+function button_jump(inst)		if	inst.can_input	then	inst.buttons = bor(inst.buttons, jump)	end	end
+function button_dash(inst)		if	inst.can_input	then	inst.buttons = bor(inst.buttons, dash)	end	end
+function button_start(inst)		if	inst.can_input	then	inst.buttons = bor(inst.buttons, start)	end	end
 
 function get_xinput(inst)
 	local hin = 0
@@ -230,6 +235,9 @@ function get_xinput(inst)
 		hin = hin - 1
 	end
 	inst.xinput = hin
+	if hin~=0 then
+		inst.xflip = hin
+	end
 end
 
 function get_dir_input(inst)
@@ -240,6 +248,9 @@ function get_dir_input(inst)
 	if (bit.band(inst.buttons, left)==left) then										--bitmasking for left button
 		hin = hin - 1
 	end
+	if hin~=0 then
+		inst.xflip = hin
+	end
 
 	local vin = 0
 	if (bit.band(inst.buttons, up)==up) then											--bitmasking for right button
@@ -247,6 +258,9 @@ function get_dir_input(inst)
 	end
 	if (bit.band(inst.buttons, down)==down) then										--bitmasking for left button
 		vin = vin - 1
+	end
+	if vin~=0 then
+		inst.yflip = vin
 	end
 
 	inst.dir_input.x = hin
@@ -289,24 +303,45 @@ function tile_height(inst, tile_id, x, y)
 	end
 end
 
+--Set hurt kickback
+function got_hurt(inst, xspeed, yspeed)
+	if not inst.is_hurt then						--disable possibility to trigger more than once at the time
+		inst.is_hurt	= true
+		inst.kickback	= vmath.vector3(xspeed, yspeed, 0)
+	end
+end
+
 --HORIZONTAL MOVEMENT
 function h_move_blocks(inst, dt)
-	if band(inst.buttons, dash)==dash and inst.can_dash and not inst.is_dashing then						--Switch on dashing state
+	if inst.can_dash and band(inst.buttons, dash)==dash and not inst.is_dashing and not inst.is_hurt then						--Switch on dashing state
 		inst.is_dashing = true
 		inst.spd.x = inst.xinput * inst.DASHSPEED
 	end
 	
 	if inst.is_dashing then
 		if inst.spd.x~=0 and inst.dashtimer<inst.DASHTIME then
-			inst.dashtimer = inst.dashtimer + dt/DT_MULT								--count dash time
+			inst.dashtimer = inst.dashtimer + dt /DT_MULT							--count dash time
 		else
 			inst.is_dashing	= false
 			inst.dashtimer	= 0
 			inst.can_dash	= false													--set to true to allow use of dash
 		end
 	end
-
-	if inst.is_wallsliding then														--Wallslide
+	
+	if inst.is_hurt then
+		if inst.hurttimer == 0 then
+			inst.spd.y = inst.kickback.y
+			inst.can_input = false											--set kickback jump
+		elseif inst.hurttimer >= inst.HURTTIME then
+			inst.is_hurt = false
+			inst.can_input = true
+			inst.hurttimer = 0
+		end
+		if inst.is_hurt then
+			inst.hurttimer = inst.hurttimer + dt /DT_MULT						--increase time in hurt state
+			inst.spd.x = inst.kickback.x											--set kickback horizontal speed
+		end
+	elseif inst.is_wallsliding then													--Wallslide
 		--
 	elseif inst.is_on_ledge then
 		--
@@ -317,7 +352,7 @@ function h_move_blocks(inst, dt)
 			hsp = hsp + hin * (inst.RUNACC * dt)
 			hsp = clamp(hsp, -inst.RUNMAX, inst.RUNMAX)
 		else																		--deaccelerate
-			hsp = approach(hsp, 0, inst.DEACCELERATE *dt)										--(value, goal, ammount)
+			hsp = approach(hsp, 0, inst.DEACCELERATE *dt)							--(value, goal, ammount)
 			hsp = clamp(hsp, -inst.RUNMAX, inst.RUNMAX)
 		end
 		inst.spd.x = hsp *dt
@@ -340,7 +375,20 @@ function h_move_slopes(inst, dt)
 		end
 	end
 
-	if inst.is_wallsliding then														--Wallslide
+	if inst.is_hurt then
+		if inst.hurttimer == 0 then
+			inst.spd.y = inst.kickback.y
+			inst.can_input = false											--set kickback jump
+		elseif inst.hurttimer >= inst.HURTTIME then
+			inst.is_hurt = false
+			inst.can_input = true
+			inst.hurttimer = 0
+		end
+		if inst.is_hurt then
+			inst.hurttimer = inst.hurttimer + dt /DT_MULT						--increase time in hurt state
+			inst.spd.x = inst.kickback.x											--set kickback horizontal speed
+		end
+	elseif inst.is_wallsliding then														--Wallslide
 		--
 	elseif inst.is_on_ledge then
 		--
@@ -382,7 +430,20 @@ function h_move_topdown(inst, dt)
 		end
 	end
 
-	if not inst.is_dashing then
+	if inst.is_hurt then
+		if inst.hurttimer == 0 then
+			inst.can_input = false
+		elseif inst.hurttimer >= inst.HURTTIME then
+			inst.is_hurt = false
+			inst.can_input = true
+			inst.hurttimer = 0
+		end
+		if inst.is_hurt then
+			inst.hurttimer = inst.hurttimer + dt /DT_MULT						--increase time in hurt state
+			inst.spd.x = inst.kickback.x											--set kickback horizontal speed
+			inst.spd.y = inst.kickback.y											--set kickback jump
+		end
+	elseif not inst.is_dashing then
 		local hin = inst.dir_input.x												--xinput set in get_xinput()
 		local hsp = inst.spd.x /dt
 		if hin ~= 0 then															--Move
@@ -400,7 +461,13 @@ end
 function v_move_platformer(inst, dt)
 	if inst.trig_doublejump then inst.trig_doublejump = false end		--reset trigger
 	local vsp = inst.spd.y /dt
-	if inst.is_grounded then												--On ground
+	if inst.is_hurt then												--in hurt state
+		if inst.is_grounded then
+			vsp = 0
+		else
+			vsp = vsp + inst.GRAVITY *dt
+		end
+	elseif inst.is_grounded then										--On ground
 		inst.doublejump_count	= 0
 		inst.last_wall = 0												--Reset Last wall (for allowing walljump from same wall once in a row)
 		inst.jmp_buf_tmr = 0											--Reset jump buffer
@@ -416,7 +483,7 @@ function v_move_platformer(inst, dt)
 			inst.is_grounded = false
 			inst.is_jumping = true
 		end
-		if inst.trig_fast_fall then inst.trig_fast_fall = false end				--Not fast falling
+		if inst.trig_fast_fall then inst.trig_fast_fall = false end		--Not fast falling
 	else 																--Not on the ground
 		if not inst.is_on_ledge then
 			vsp = vsp + inst.GRAVITY *dt								--Apply gravity
@@ -475,7 +542,7 @@ function v_move_platformer(inst, dt)
 end
 
 function v_move_topdown(inst, dt)
-	if not inst.is_dashing then
+	if not inst.is_hurt and not inst.is_dashing then
 		local vin = inst.dir_input.y												--xinput set in get_xinput()
 		local vsp = inst.spd.y /dt
 		if vin ~= 0 then															--Move
@@ -1017,7 +1084,7 @@ end
 function physics_update_platformer_block(inst, dt)
 	dt = dt*TIME_MULT*DT_MULT															--I like to have speed variables to be px/frame (60fps) so dt*60
 	get_xinput(inst)
-	h_move_slopes(inst, dt)
+	h_move_blocks(inst, dt)
 	h_collide_blocks(inst)
 	ground_check_blocks(inst)
     v_move_platformer(inst, dt)
